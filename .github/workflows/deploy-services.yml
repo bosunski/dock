@@ -232,7 +232,7 @@ jobs:
         run: |
           SERVICE="${{ matrix.service }}"
           TARGET_ENV="${{ matrix.environment }}"
-          VAULT="egberinde"
+          VAULT="Egberinde"
           ITEM="${SERVICE}-${TARGET_ENV}"
           
           echo "🔐 Fetching secrets for ${ITEM} from ${VAULT} vault..."
