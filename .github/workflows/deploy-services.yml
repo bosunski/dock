@@ -378,23 +378,28 @@ jobs:
                   # Create directory
                   subprocess.run(['ssh', f'{user}@{ip}', 'mkdir -p /opt/docker/nginx'])
                   
-                  # Copy nginx config
+                  # Copy nginx config and init script
                   subprocess.run(['scp', 'services/nginx/nginx.conf', 
                                 f'{user}@{ip}:/opt/docker/nginx/nginx.conf'])
+                  subprocess.run(['scp', 'services/nginx/init-ssl.sh', 
+                                f'{user}@{ip}:/opt/docker/nginx/init-ssl.sh'])
                   
-                  # Reload nginx
-                  reload_result = subprocess.run(
-                      ['ssh', f'{user}@{ip}', 'docker exec nginx-proxy nginx -s reload'],
+                  # Run SSL initialization to get certificates for any new domains
+                  print(f"Checking SSL certificates for all domains...")
+                  ssl_result = subprocess.run(
+                      ['ssh', f'{user}@{ip}', 'cd /opt/docker/nginx && bash init-ssl.sh'],
                       capture_output=True, text=True
                   )
+                  print(ssl_result.stdout)
                   
-                  if reload_result.returncode == 0:
-                      print(f"✅ Nginx configuration updated on {server_name}")
+                  if ssl_result.returncode == 0:
+                      print(f"✅ Nginx configuration and SSL certificates updated on {server_name}")
                   else:
-                      # Fallback to restart
-                      subprocess.run(['ssh', f'{user}@{ip}', 
-                                    'cd /opt/docker/nginx && docker compose restart nginx'])
-                      print(f"✅ Nginx restarted on {server_name}")
+                      print(f"⚠ SSL initialization had issues, but continuing...")
+                      # Try to reload nginx anyway
+                      subprocess.run(['ssh', f'{user}@{ip}', 'docker exec nginx-proxy nginx -s reload'],
+                                   capture_output=True)
+                      print(f"✅ Nginx configuration updated on {server_name}")
               else:
                   print(f"⚠ No nginx found on {server_name}, skipping")
           
