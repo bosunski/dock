@@ -2,14 +2,15 @@
 set -e
 
 # inject-secrets.sh - Fetch secrets from 1Password and generate .env file
-# Usage: inject-secrets.sh <service> <environment> <output-path>
+# Usage: inject-secrets.sh <service> <environment> <output-path> [vault-name]
 
 SERVICE=$1
 ENVIRONMENT=$2
 OUTPUT_PATH=$3
+VAULT=${4:-"Dock"}  # Default vault name: "Dock"
 
 if [ -z "$SERVICE" ] || [ -z "$ENVIRONMENT" ] || [ -z "$OUTPUT_PATH" ]; then
-    echo "Usage: inject-secrets.sh <service> <environment> <output-path>"
+    echo "Usage: inject-secrets.sh <service> <environment> <output-path> [vault-name]"
     exit 1
 fi
 
@@ -21,11 +22,8 @@ if ! command -v op &> /dev/null; then
     exit 1
 fi
 
-# Vault naming convention: "Production" or "Staging"
-VAULT="${ENVIRONMENT^}"  # Capitalize first letter
-
-# Item naming convention: "{service}-secrets" (e.g., "fizzy-secrets")
-ITEM="${SERVICE}-secrets"
+# Item naming convention: "{service}-{environment}" (e.g., "fizzy-production")
+ITEM="${SERVICE}-${ENVIRONMENT}"
 
 echo "Fetching from vault: $VAULT, item: $ITEM"
 
