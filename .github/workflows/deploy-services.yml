@@ -235,6 +235,12 @@ jobs:
           # Deploy with Docker Compose
           ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/$SERVICE && docker compose pull && docker compose up -d"
           
+          # Initialize SSL if this is nginx
+          if [ "$SERVICE" = "nginx" ]; then
+            echo "Running SSL initialization for nginx..."
+            ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/nginx && bash init-ssl.sh" || echo "SSL initialization will run on first manual setup"
+          fi
+          
           echo "Service $SERVICE deployed successfully to $SERVER_NAME"
 
       - name: Deploy with Dockerfile
