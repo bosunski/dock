@@ -16,6 +16,12 @@ services:
       - BASE_URL=https://fizzy.egberinde.com
     volumes:
       - fizzy:/rails/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/up"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   fizzy:

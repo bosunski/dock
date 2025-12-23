@@ -264,8 +264,9 @@ jobs:
           # Copy all files including hidden files like .env
           rsync -avz --include='.*' services/$SERVICE/ $TARGET_USER@$TARGET_IP:/opt/docker/$SERVICE/
           
-          # Deploy with Docker Compose
-          ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/$SERVICE && docker compose pull && docker compose up -d"
+          # Deploy with Docker Compose and wait for health checks
+          echo "Starting services..."
+          ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/$SERVICE && docker compose pull && docker compose up -d --wait"
           
           # Initialize SSL if this is nginx
           if [ "$SERVICE" = "nginx" ]; then
@@ -327,15 +328,17 @@ jobs:
           TARGET_IP="${{ matrix.ip }}"
           TARGET_USER="${{ matrix.user }}"
           SERVER_NAME="${{ matrix.server }}"
-          DEPLOY_TYPE="${{ steps.deploy-config.outputs.type }}"
           
-          echo "Performing health check for $SERVICE on $SERVER_NAME..."
+          echo "Verifying deployment of $SERVICE on $SERVER_NAME..."
           
-          # Wait for container to stabilize
-          sleep 5
-          
-          # Check if container is running
-          if ! ssh $TARGET_USER@$TARGET_IP "docker ps --format '{{.Names}}' | grep -q '^${SERVICE}$' || docker compose -f /opt/docker/$SERVICE/docker-compose.yml ps --services --filter 'status=running' | grep -q ."; then
+          # Verify container is still running (--wait may have timed out)
+          if ssh $TARGET_USER@$TARGET_IP "docker ps --format '{{.Names}}' | grep -q '^${SERVICE}$' || docker compose -f /opt/docker/$SERVICE/docker-compose.yml ps --services --filter 'status=running' | grep -q ."; then
+            echo "✅ Service $SERVICE is running and healthy on $SERVER_NAME"
+            
+            # Show last few log lines for context
+            echo "Recent logs:"
+            ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 10 2>&1 || docker compose -f /opt/docker/$SERVICE/docker-compose.yml logs --tail 10 2>&1"
+          else
             echo "❌ Container $SERVICE is not running on $SERVER_NAME"
             echo "Container status:"
             ssh $TARGET_USER@$TARGET_IP "docker ps -a | grep $SERVICE || echo 'No containers found'"
@@ -343,23 +346,6 @@ jobs:
             ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 50 2>&1 || docker compose -f /opt/docker/$SERVICE/docker-compose.yml logs --tail 50 2>&1 || echo 'No logs available'"
             exit 1
           fi
-          
-          echo "✓ Container is running"
-          
-          # Check for errors in recent logs
-          echo "Checking logs for errors..."
-          ERROR_COUNT=$(ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 100 2>&1 | grep -iE 'error|exception|fatal|failed' | wc -l || echo 0")
-          
-          if [ "$ERROR_COUNT" -gt 0 ]; then
-            echo "⚠️  Found $ERROR_COUNT potential errors in logs:"
-            ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 100 2>&1 | grep -iE 'error|exception|fatal|failed' | tail -10"
-            echo ""
-            echo "❌ Service may not be healthy - check logs on server"
-            exit 1
-          fi
-          
-          echo "✓ No errors found in recent logs"
-          echo "✅ Service $SERVICE appears healthy on $SERVER_NAME"
 
   update-nginx:
     needs: [detect-changes, deploy-services]
