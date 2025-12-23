@@ -43,3 +43,12 @@
     user: "{{ deploy_user | default('deploy') }}"
     key: "{{ lookup('env', 'DEPLOY_SSH_PUBLIC_KEY') }}"
   when: lookup('env', 'DEPLOY_SSH_PUBLIC_KEY') != ""
+
+- name: Create Docker deployment directory
+  file:
+    path: /opt/docker
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  become: yes

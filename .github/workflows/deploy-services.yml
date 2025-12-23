@@ -16,10 +16,9 @@ on:
       environment:
         description: 'Target environment'
         required: true
-        default: 'staging'
+        default: 'production'
         type: choice
         options:
-          - staging
           - production
 
 jobs:
@@ -159,7 +158,7 @@ jobs:
           EOF
         env:
           SERVICES: ${{ steps.changes.outputs.services }}
-          TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+          TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
 
   deploy-services:
     needs: detect-changes
