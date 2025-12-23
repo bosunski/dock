@@ -226,7 +226,7 @@ jobs:
           export-env: false
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SECRET_REFS: op://egberinde/${{ matrix.service }}-${{ matrix.environment }}
+          SECRET_REFS: op://Egberinde/${{ matrix.service }}-${{ matrix.environment }}
 
       - name: Export secrets to .env file
         run: |
