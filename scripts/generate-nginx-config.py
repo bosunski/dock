@@ -113,6 +113,11 @@ http {
             return 200 "healthy\\n";
             add_header Content-Type text/plain;
         }
+        
+        # ACME challenge for Let's Encrypt
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
     }
     
 """
@@ -161,10 +166,59 @@ http {
     
     # Generate server blocks
     for domain, locations in domains.items():
+        # Skip default server (already handled above)
+        if domain == '_':
+            config += f"""
+    server {{
+        listen 80;
+        server_name {domain};
+        
+        client_max_body_size 50M;
+"""
+            for location in locations:
+                config += generate_location_config(
+                    location['name'],
+                    location['path'],
+                    location['upstream'],
+                    location['strip_prefix']
+                )
+            config += """
+    }
+"""
+            continue
+        
+        # HTTP server - redirect to HTTPS
         config += f"""
     server {{
         listen 80;
         server_name {domain};
+        
+        # ACME challenge for Let's Encrypt
+        location /.well-known/acme-challenge/ {{
+            root /var/www/certbot;
+        }}
+        
+        # Redirect all other traffic to HTTPS
+        location / {{
+            return 301 https://$host$request_uri;
+        }}
+    }}
+    
+    # HTTPS server
+    server {{
+        listen 443 ssl http2;
+        server_name {domain};
+        
+        # SSL certificates
+        ssl_certificate /etc/letsencrypt/live/{domain}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/{domain}/privkey.pem;
+        
+        # SSL configuration
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
         
         client_max_body_size 50M;
 """
