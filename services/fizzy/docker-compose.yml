@@ -2,9 +2,9 @@ services:
   web:
     image: ghcr.io/basecamp/fizzy:main
     restart: unless-stopped
-    ports:
-      - "80:80"
-      # - "443:443"
+    # ports:
+    #   - "80:80"
+    #   - "443:443"
     environment:
       - SECRET_KEY_BASE=abcdefabcdef
       - DISABLE_SSL=true
