@@ -45,7 +45,10 @@ jobs:
           # Add all servers from servers.yml to known_hosts
           python3 << 'EOF'
           import yaml
-          with open('servers.yml') as f:
+          import os
+          
+          servers_file = os.path.join(os.environ['GITHUB_WORKSPACE'], 'servers.yml')
+          with open(servers_file) as f:
               config = yaml.safe_load(f)
           for server_name, server_info in config['servers'].items():
               ip = server_info['ip']

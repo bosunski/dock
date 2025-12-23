@@ -96,7 +96,9 @@ jobs:
               exit(0)
           
           # Load servers configuration
-          with open('servers.yml') as f:
+          workspace = os.environ['GITHUB_WORKSPACE']
+          servers_file = os.path.join(workspace, 'servers.yml')
+          with open(servers_file) as f:
               servers_config = yaml.safe_load(f)
           
           # Build deployment matrix
