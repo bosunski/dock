@@ -251,7 +251,9 @@ jobs:
           
           # Copy service files to server
           ssh $TARGET_USER@$TARGET_IP "mkdir -p /opt/docker/$SERVICE"
-          scp -r services/$SERVICE/* $TARGET_USER@$TARGET_IP:/opt/docker/$SERVICE/
+          
+          # Copy all files including hidden files like .env
+          rsync -avz --include='.*' services/$SERVICE/ $TARGET_USER@$TARGET_IP:/opt/docker/$SERVICE/
           
           # Deploy with Docker Compose
           ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/$SERVICE && docker compose pull && docker compose up -d"
