@@ -31,28 +31,27 @@ Create items in 1Password following this structure:
 **Example: `fizzy-production` item in egberinde vault:**
 ```
 Item Type: Login or Secure Note
-Fields:
-  - SECRET_KEY_BASE (concealed)
-  - VAPID_PRIVATE_KEY (concealed)
-  - VAPID_PUBLIC_KEY (text)
-  - MAILER_FROM_ADDRESS (text)
-  - SMTP_ADDRESS (text)
-  - SMTP_USERNAME (text)
-  - SMTP_PASSWORD (concealed)
+Files/Documents:
+  - dotenv (file containing your .env content)
 ```
 
-### 4. Field Types
-
-- **concealed/password** - for actual secrets (encrypted, hidden)
-- **text** - for non-secret configuration values
+**The `dotenv` document should contain your environment variables:**
+```env
+SECRET_KEY_BASE=abc123...
+VAPID_PRIVATE_KEY=xyz789...
+VAPID_PUBLIC_KEY=def456...
+MAILER_FROM_ADDRESS=noreply@example.com
+SMTP_ADDRESS=smtp.example.com
+SMTP_USERNAME=user@example.com
+SMTP_PASSWORD=password123
+```
 
 ## How It Works
 
 1. **During Deployment:**
    - Workflow installs 1Password CLI
-   - Runs `scripts/inject-secrets.sh <service> <environment>`
-   - Fetches secrets from 1Password item `{service}-{environment}` in `egberinde` vault
-   - Generates `.env` file with all fields
+   - Uses `load-secrets-action` to fetch the `dotenv` document from `{service}-{environment}` item
+   - Writes content directly to `.env` file
    - Deploys service with `.env` file
 
 2. **Service Configuration:**

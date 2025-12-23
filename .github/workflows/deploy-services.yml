@@ -220,18 +220,16 @@ jobs:
       - name: Set up 1Password CLI
         uses: 1password/install-cli-action@v1
 
-      - name: Export secrets to .env file
+      - name: Load secrets to .env file
+        uses: 1password/load-secrets-action@v2
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          DOTENV_FILE: op://Egberinde/${{ matrix.service }}-${{ matrix.environment }}/dotenv
+      
+      - name: Write .env file
         run: |
           SERVICE="${{ matrix.service }}"
-          TARGET_ENV="${{ matrix.environment }}"
-          VAULT="Egberinde"
-          ITEM="${SERVICE}-${TARGET_ENV}"
-          
-          echo "🔐 Fetching secrets for ${ITEM} from ${VAULT} vault..."
-          
-          # Use 1Password CLI to get all fields and export to .env
-          op item get "$ITEM" --vault "$VAULT" --format json | \
-            jq -r '.fields[] | select(.value != null and .value != "") | "\(.label)=\(.value)"' > "services/$SERVICE/.env"
+          echo "$DOTENV_FILE" > "services/$SERVICE/.env"
           
           if [ -s "services/$SERVICE/.env" ]; then
             echo "✅ Generated .env with $(wc -l < services/$SERVICE/.env | xargs) variables"
@@ -239,8 +237,6 @@ jobs:
             echo "❌ Failed to generate .env file"
             exit 1
           fi
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
 
       - name: Deploy with Docker Compose
         if: steps.deploy-config.outputs.type == 'compose'
