@@ -228,13 +228,14 @@ jobs:
           TARGET_ENV="${{ matrix.environment }}"
 
           # Generate .env file from 1Password
-          bash scripts/inject-secrets.sh "$SERVICE" "$TARGET_ENV" "services/$SERVICE/.env" || true
+          bash scripts/inject-secrets.sh "$SERVICE" "$TARGET_ENV" "services/$SERVICE/.env"
 
           # Show what we generated (without exposing values)
           if [ -f "services/$SERVICE/.env" ]; then
             echo "✅ Generated .env with $(wc -l < services/$SERVICE/.env | xargs) variables"
           else
-            echo "⚠ No .env generated (no secrets found or not configured)"
+            echo "❌ Failed to generate .env file"
+            exit 1
           fi
 
       - name: Deploy with Docker Compose

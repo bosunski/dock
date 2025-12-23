@@ -29,10 +29,9 @@ echo "Fetching from vault: $VAULT, item: $ITEM"
 
 # Check if item exists
 if ! op item get "$ITEM" --vault "$VAULT" &> /dev/null; then
-    echo "⚠ Warning: Item '$ITEM' not found in vault '$VAULT'"
-    echo "Creating empty .env file..."
-    touch "$OUTPUT_PATH"
-    exit 0
+    echo "❌ Error: Item '$ITEM' not found in vault '$VAULT'"
+    echo "Please create the item in 1Password following the naming convention: {service}-{environment}"
+    exit 1
 fi
 
 # Fetch all fields from the item and generate .env file
