@@ -330,19 +330,36 @@ jobs:
           DEPLOY_TYPE="${{ steps.deploy-config.outputs.type }}"
           
           echo "Performing health check for $SERVICE on $SERVER_NAME..."
-          sleep 10
           
-          # Check if service is running
-          if ssh $TARGET_USER@$TARGET_IP "docker ps --format '{{.Names}}' | grep -q '^${SERVICE}$' || docker compose -f /opt/docker/$SERVICE/docker-compose.yml ps --services --filter 'status=running' | grep -q ."; then
-            echo "✓ Service $SERVICE is running on $SERVER_NAME"
-          else
-            echo "❌ Service $SERVICE is not running on $SERVER_NAME"
+          # Wait for container to stabilize
+          sleep 5
+          
+          # Check if container is running
+          if ! ssh $TARGET_USER@$TARGET_IP "docker ps --format '{{.Names}}' | grep -q '^${SERVICE}$' || docker compose -f /opt/docker/$SERVICE/docker-compose.yml ps --services --filter 'status=running' | grep -q ."; then
+            echo "❌ Container $SERVICE is not running on $SERVER_NAME"
             echo "Container status:"
             ssh $TARGET_USER@$TARGET_IP "docker ps -a | grep $SERVICE || echo 'No containers found'"
             echo "Container logs (last 50 lines):"
             ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 50 2>&1 || docker compose -f /opt/docker/$SERVICE/docker-compose.yml logs --tail 50 2>&1 || echo 'No logs available'"
             exit 1
           fi
+          
+          echo "✓ Container is running"
+          
+          # Check for errors in recent logs
+          echo "Checking logs for errors..."
+          ERROR_COUNT=$(ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 100 2>&1 | grep -iE 'error|exception|fatal|failed' | wc -l || echo 0")
+          
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "⚠️  Found $ERROR_COUNT potential errors in logs:"
+            ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 100 2>&1 | grep -iE 'error|exception|fatal|failed' | tail -10"
+            echo ""
+            echo "❌ Service may not be healthy - check logs on server"
+            exit 1
+          fi
+          
+          echo "✓ No errors found in recent logs"
+          echo "✅ Service $SERVICE appears healthy on $SERVER_NAME"
 
   update-nginx:
     needs: [detect-changes, deploy-services]
