@@ -9,71 +9,24 @@ servers:
     roles:
       - web
       - api
+      - database
     ssh_user: azureuser
     tags:
       - frontend
       - backend
 
-  prod-web-2:
-    ip: 10.0.1.11
-    environment: production
-    roles:
-      - web
-      - api
-    ssh_user: deploy
-    tags:
-      - frontend
-      - backend
-
-  prod-db-1:
-    ip: 10.0.1.20
-    environment: production
-    roles:
-      - database
-    ssh_user: deploy
-    tags:
-      - database
-
-  # Local testing
-  local-test:
-    ip: 127.0.0.1
-    environment: local
-    ssh_port: 2222
-    ssh_user: vagrant
-    roles:
-      - web
-      - api
-      - database
-    tags:
-      - all
-
 # Environment groups for easy targeting
 environments:
-  staging:
-    - staging-web-1
-    - staging-db-1
-  
   production:
     - prod-web-1
-    - prod-web-2
-    - prod-db-1
-  
-  local:
-    - local-test
 
 # Role-based groups
 role_groups:
   web:
-    - staging-web-1
     - prod-web-1
-    - prod-web-2
   
   api:
-    - staging-web-1
     - prod-web-1
-    - prod-web-2
   
   database:
-    - staging-db-1
-    - prod-db-1
-    - local-test
+    - prod-web-1

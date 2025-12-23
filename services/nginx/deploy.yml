@@ -8,9 +8,7 @@ service:
 targets:
   # Deploy by server name
   servers:
-    - staging-web-1
     - prod-web-1
-    - prod-web-2
   
   # Or deploy by role
   # roles:
@@ -18,7 +16,6 @@ targets:
   
   # Or deploy by environment
   # environments:
-  #   - staging
   #   - production
 
 # Nginx-specific configuration
