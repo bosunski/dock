@@ -220,14 +220,6 @@ jobs:
       - name: Set up 1Password CLI
         uses: 1password/install-cli-action@v1
 
-      - name: Load secrets from 1Password
-        uses: 1password/load-secrets-action@v2
-        with:
-          export-env: false
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SECRET_REFS: op://Egberinde/${{ matrix.service }}-${{ matrix.environment }}
-
       - name: Export secrets to .env file
         run: |
           SERVICE="${{ matrix.service }}"
