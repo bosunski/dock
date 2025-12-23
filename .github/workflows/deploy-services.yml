@@ -249,10 +249,6 @@ jobs:
           fi
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          else
-            echo "❌ Failed to generate .env file"
-            exit 1
-          fi
 
       - name: Deploy with Docker Compose
         if: steps.deploy-config.outputs.type == 'compose'
