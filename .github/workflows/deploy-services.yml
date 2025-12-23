@@ -218,20 +218,30 @@ jobs:
           SERVICE: ${{ matrix.service }}
 
       - name: Set up 1Password CLI
-        uses: 1password/load-secrets-action/configure@v1
-        with:
-          service-account-token: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+        uses: 1password/install-cli-action@v1
 
-      - name: Inject secrets from 1Password
+      - name: Load secrets from 1Password
+        uses: 1password/load-secrets-action@v2
+        with:
+          export-env: false
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SECRET_REFS: op://egberinde/${{ matrix.service }}-${{ matrix.environment }}
+
+      - name: Export secrets to .env file
         run: |
           SERVICE="${{ matrix.service }}"
           TARGET_ENV="${{ matrix.environment }}"
-
-          # Generate .env file from 1Password
-          bash scripts/inject-secrets.sh "$SERVICE" "$TARGET_ENV" "services/$SERVICE/.env"
-
-          # Show what we generated (without exposing values)
-          if [ -f "services/$SERVICE/.env" ]; then
+          VAULT="egberinde"
+          ITEM="${SERVICE}-${TARGET_ENV}"
+          
+          echo "🔐 Fetching secrets for ${ITEM} from ${VAULT} vault..."
+          
+          # Use 1Password CLI to get all fields and export to .env
+          op item get "$ITEM" --vault "$VAULT" --format json | \
+            jq -r '.fields[] | select(.value != null and .value != "") | "\(.label)=\(.value)"' > "services/$SERVICE/.env"
+          
+          if [ -s "services/$SERVICE/.env" ]; then
             echo "✅ Generated .env with $(wc -l < services/$SERVICE/.env | xargs) variables"
           else
             echo "❌ Failed to generate .env file"
