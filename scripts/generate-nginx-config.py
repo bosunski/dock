@@ -34,22 +34,20 @@ def load_service_configs():
 
 def generate_upstream_config(service_name, upstream):
     """Generate upstream block for a service"""
-    return f"""
-    upstream {service_name} {{
-        server {upstream};
-        keepalive 32;
-    }}
-"""
+    # Don't use upstream blocks - we'll use variables with resolver instead
+    return ""
 
-def generate_location_config(service_name, path, strip_prefix=False):
-    """Generate location block for a service"""
+def generate_location_config(service_name, path, upstream, strip_prefix=False):
+    """Generate location block for a service with runtime DNS resolution"""
     proxy_pass_path = ""
     if strip_prefix and path != "/":
         proxy_pass_path = "/"
     
     return f"""
         location {path} {{
-            proxy_pass http://{service_name}{proxy_pass_path};
+            # Use variable to force runtime DNS resolution
+            set $upstream_{service_name.replace('-', '_')} {upstream};
+            proxy_pass http://$upstream_{service_name.replace('-', '_')}{proxy_pass_path};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -95,22 +93,13 @@ http {
     keepalive_timeout 65;
     gzip on;
     
+    # Use Docker's internal DNS for runtime resolution
+    resolver 127.0.0.11 valid=10s;
+    resolver_timeout 5s;
+    
 """
     
-    # Generate upstream blocks
-    for service in services:
-        name = service['name']
-        proxy_config = service['config'].get('proxy', {})
-        backends = service['config'].get('nginx', {}).get('backends', [])
-        
-        if backends:
-            for backend in backends:
-                config += generate_upstream_config(backend['name'], backend['upstream'])
-        else:
-            # Default upstream configuration
-            runtime = service['config'].get('runtime', {})
-            port = runtime.get('container_port', 8080)
-            config += generate_upstream_config(name, f"{name}:{port}")
+    # Skip upstream blocks - using variables with resolver instead
     
     # Health check endpoint
     config += """
@@ -131,6 +120,7 @@ http {
     # Generate server blocks grouped by domain
     domains = {}
     for service in services:
+        name = service['name']
         proxy_config = service['config'].get('proxy', {})
         backends = service['config'].get('nginx', {}).get('backends', [])
         
@@ -139,8 +129,15 @@ http {
                 domain = backend.get('domain', '_')
                 if domain not in domains:
                     domains[domain] = []
+                
+                # Calculate upstream address
+                runtime = service['config'].get('runtime', {})
+                port = runtime.get('container_port', 8080)
+                upstream = backend.get('upstream', f"{backend['name']}:{port}")
+                
                 domains[domain].append({
                     'name': backend['name'],
+                    'upstream': upstream,
                     'path': backend.get('path', '/'),
                     'strip_prefix': False
                 })
@@ -149,8 +146,15 @@ http {
             domain = proxy_config.get('domain', '_')
             if domain not in domains:
                 domains[domain] = []
+            
+            # Calculate upstream address
+            runtime = service['config'].get('runtime', {})
+            port = runtime.get('container_port', 8080)
+            upstream = f"{name}:{port}"
+            
             domains[domain].append({
                 'name': service['name'],
+                'upstream': upstream,
                 'path': proxy_config.get('path', '/'),
                 'strip_prefix': proxy_config.get('strip_prefix', False)
             })
@@ -169,6 +173,7 @@ http {
             config += generate_location_config(
                 location['name'],
                 location['path'],
+                location['upstream'],
                 location['strip_prefix']
             )
         
