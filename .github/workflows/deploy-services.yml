@@ -180,6 +180,10 @@ jobs:
       - name: Install dependencies
         run: pip install PyYAML
 
+      - name: Generate nginx configuration
+        if: matrix.service == 'nginx'
+        run: python3 scripts/generate-nginx-config.py
+
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
@@ -200,9 +204,11 @@ jobs:
               config = yaml.safe_load(f)
           
           deploy_type = config['service']['type']
+          proxy_enabled = config.get('proxy', {}).get('enabled', False)
           
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'type={deploy_type}\n')
+              f.write(f'proxy_enabled={str(proxy_enabled).lower()}\n')
               
               if deploy_type == 'dockerfile':
                   runtime = config.get('runtime', {})
@@ -213,6 +219,8 @@ jobs:
                   f.write(f"network={runtime.get('network', 'services_network')}\n")
           
           print(f"Service {service} type: {deploy_type}")
+          if proxy_enabled:
+              print(f"Service {service} has proxy enabled - nginx will be updated")
           EOF
         env:
           SERVICE: ${{ matrix.service }}
@@ -304,6 +312,36 @@ jobs:
             echo "Container logs (last 50 lines):"
             ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 50 2>&1 || docker compose -f /opt/docker/$SERVICE/docker-compose.yml logs --tail 50 2>&1 || echo 'No logs available'"
             exit 1
+          fi
+
+      - name: Regenerate and deploy nginx if proxy enabled
+        if: steps.deploy-config.outputs.proxy_enabled == 'true' && matrix.service != 'nginx'
+        run: |
+          SERVICE="${{ matrix.service }}"
+          TARGET_IP="${{ matrix.ip }}"
+          TARGET_USER="${{ matrix.user }}"
+          SERVER_NAME="${{ matrix.server }}"
+          
+          echo "Service $SERVICE has proxy enabled, updating nginx configuration..."
+          
+          # Regenerate nginx config with latest changes
+          python3 scripts/generate-nginx-config.py
+          
+          # Check if nginx exists on this server
+          if ssh $TARGET_USER@$TARGET_IP "docker ps -a --format '{{.Names}}' | grep -q '^nginx-nginx-1$'"; then
+            echo "Deploying updated nginx configuration to $SERVER_NAME"
+            
+            # Copy nginx config to server
+            ssh $TARGET_USER@$TARGET_IP "mkdir -p /opt/docker/nginx"
+            scp services/nginx/nginx.conf $TARGET_USER@$TARGET_IP:/opt/docker/nginx/nginx.conf
+            
+            # Reload nginx gracefully
+            ssh $TARGET_USER@$TARGET_IP "docker exec nginx-nginx-1 nginx -s reload" || \
+              ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/nginx && docker compose restart nginx"
+            
+            echo "Nginx configuration updated successfully"
+          else
+            echo "Warning: nginx not found on $SERVER_NAME, skipping nginx update"
           fi
 
   deployment-summary:

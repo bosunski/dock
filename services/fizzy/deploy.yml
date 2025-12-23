@@ -18,6 +18,12 @@ targets:
   # environments:
   #   - production
 
+# Behind Nginx proxy?
+proxy:
+  enabled: true
+  path: /
+  domain: fizzy.egberinde.com
+  strip_prefix: true
 
 # Health check configuration
 health_check:
