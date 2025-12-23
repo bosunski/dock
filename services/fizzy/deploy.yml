@@ -25,6 +25,10 @@ proxy:
   domain: fizzy.egberinde.com
   strip_prefix: true
 
+# Runtime configuration for proxy
+runtime:
+  container_port: 80
+
 # Health check configuration
 health_check:
   enabled: true
