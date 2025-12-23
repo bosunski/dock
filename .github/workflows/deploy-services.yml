@@ -1,0 +1,295 @@
+name: Service Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy (or "all" for all services)'
+        required: true
+        default: 'all'
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.changes.outputs.services }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install PyYAML
+
+      - name: Detect changed services
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            if [ "${{ inputs.service }}" == "all" ]; then
+              SERVICES=$(ls -d services/*/ | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
+            else
+              SERVICES='["${{ inputs.service }}"]'
+            fi
+          else
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+            SERVICES=$(echo "$CHANGED_FILES" | grep '^services/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1] | map(select(length > 0))')
+          fi
+          
+          echo "services=$SERVICES" >> $GITHUB_OUTPUT
+          echo "Changed services: $SERVICES"
+
+      - name: Build deployment matrix
+        id: set-matrix
+        run: |
+          python3 << 'EOF'
+          import json
+          import yaml
+          import os
+          from pathlib import Path
+          
+          services = json.loads(os.environ['SERVICES'])
+          target_env = os.environ.get('TARGET_ENV', 'staging')
+          
+          if not services:
+              print(json.dumps({"include": []}))
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write('matrix={"include":[]}\n')
+              exit(0)
+          
+          # Load servers configuration
+          with open('servers.yml') as f:
+              servers_config = yaml.safe_load(f)
+          
+          # Build deployment matrix
+          matrix_items = []
+          
+          for service_name in services:
+              deploy_file = Path(f'services/{service_name}/deploy.yml')
+              if not deploy_file.exists():
+                  print(f"Warning: No deploy.yml for {service_name}, skipping")
+                  continue
+              
+              with open(deploy_file) as f:
+                  deploy_config = yaml.safe_load(f)
+              
+              targets = deploy_config.get('targets', {})
+              target_servers = []
+              
+              # Determine target servers based on deploy.yml
+              if 'servers' in targets:
+                  target_servers = targets['servers']
+              elif 'roles' in targets:
+                  for role in targets['roles']:
+                      if role in servers_config.get('role_groups', {}):
+                          target_servers.extend(servers_config['role_groups'][role])
+              elif 'environments' in targets:
+                  for env in targets['environments']:
+                      if target_env in targets['environments']:
+                          if env in servers_config.get('environments', {}):
+                              target_servers.extend(servers_config['environments'][env])
+              else:
+                  # Default: deploy to all servers in target environment
+                  if target_env in servers_config.get('environments', {}):
+                      target_servers = servers_config['environments'][target_env]
+              
+              # Filter by target environment
+              filtered_servers = []
+              for server_name in target_servers:
+                  server_info = servers_config['servers'].get(server_name, {})
+                  if server_info.get('environment') == target_env:
+                      filtered_servers.append(server_name)
+              
+              # Create matrix entry for each server
+              for server_name in set(filtered_servers):
+                  server_info = servers_config['servers'][server_name]
+                  matrix_items.append({
+                      'service': service_name,
+                      'server': server_name,
+                      'ip': server_info['ip'],
+                      'user': server_info['ssh_user'],
+                      'environment': target_env
+                  })
+          
+          matrix = {"include": matrix_items}
+          print(json.dumps(matrix, indent=2))
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'matrix={json.dumps(matrix)}\n')
+          EOF
+        env:
+          SERVICES: ${{ steps.changes.outputs.services }}
+          TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+
+  deploy-services:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install PyYAML
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ matrix.ip }} >> ~/.ssh/known_hosts
+
+      - name: Load deployment configuration
+        id: deploy-config
+        run: |
+          python3 << 'EOF'
+          import yaml
+          import os
+          
+          service = os.environ['SERVICE']
+          
+          with open(f'services/{service}/deploy.yml') as f:
+              config = yaml.safe_load(f)
+          
+          deploy_type = config['service']['type']
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'type={deploy_type}\n')
+              
+              if deploy_type == 'dockerfile':
+                  runtime = config.get('runtime', {})
+                  f.write(f"image_name={runtime.get('image_name', service)}\n")
+                  f.write(f"image_tag={runtime.get('image_tag', 'latest')}\n")
+                  f.write(f"container_port={runtime.get('container_port', 8080)}\n")
+                  f.write(f"host_port={runtime.get('host_port', 8080)}\n")
+                  f.write(f"network={runtime.get('network', 'services_network')}\n")
+          
+          print(f"Service {service} type: {deploy_type}")
+          EOF
+        env:
+          SERVICE: ${{ matrix.service }}
+
+      - name: Deploy with Docker Compose
+        if: steps.deploy-config.outputs.type == 'compose'
+        run: |
+          SERVICE="${{ matrix.service }}"
+          TARGET_IP="${{ matrix.ip }}"
+          TARGET_USER="${{ matrix.user }}"
+          TARGET_ENV="${{ matrix.environment }}"
+          SERVER_NAME="${{ matrix.server }}"
+          
+          echo "Deploying $SERVICE to $SERVER_NAME ($TARGET_IP) in $TARGET_ENV"
+          
+          # Copy service files to server
+          ssh $TARGET_USER@$TARGET_IP "mkdir -p /opt/docker/$SERVICE"
+          scp -r services/$SERVICE/* $TARGET_USER@$TARGET_IP:/opt/docker/$SERVICE/
+          
+          # Deploy with Docker Compose
+          ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/$SERVICE && docker compose pull && docker compose up -d"
+          
+          echo "Service $SERVICE deployed successfully to $SERVER_NAME"
+
+      - name: Deploy with Dockerfile
+        if: steps.deploy-config.outputs.type == 'dockerfile'
+        run: |
+          SERVICE="${{ matrix.service }}"
+          TARGET_IP="${{ matrix.ip }}"
+          TARGET_USER="${{ matrix.user }}"
+          TARGET_ENV="${{ matrix.environment }}"
+          SERVER_NAME="${{ matrix.server }}"
+          
+          IMAGE_NAME="${{ steps.deploy-config.outputs.image_name }}"
+          IMAGE_TAG="${{ steps.deploy-config.outputs.image_tag }}"
+          CONTAINER_PORT="${{ steps.deploy-config.outputs.container_port }}"
+          HOST_PORT="${{ steps.deploy-config.outputs.host_port }}"
+          NETWORK="${{ steps.deploy-config.outputs.network }}"
+          
+          echo "Building and deploying $SERVICE to $SERVER_NAME ($TARGET_IP) in $TARGET_ENV"
+          
+          # Copy service files to server
+          ssh $TARGET_USER@$TARGET_IP "mkdir -p /opt/docker/$SERVICE"
+          scp -r services/$SERVICE/* $TARGET_USER@$TARGET_IP:/opt/docker/$SERVICE/
+          
+          # Build and run container
+          ssh $TARGET_USER@$TARGET_IP << EOF
+            cd /opt/docker/$SERVICE
+            
+            # Stop and remove old container
+            docker stop $SERVICE 2>/dev/null || true
+            docker rm $SERVICE 2>/dev/null || true
+            
+            # Build new image
+            docker build -t $IMAGE_NAME:$IMAGE_TAG .
+            
+            # Run new container
+            docker run -d \
+              --name $SERVICE \
+              --network $NETWORK \
+              -p $HOST_PORT:$CONTAINER_PORT \
+              --restart unless-stopped \
+              $IMAGE_NAME:$IMAGE_TAG
+            
+            echo "Container $SERVICE started successfully on $SERVER_NAME"
+          EOF
+
+      - name: Health check
+        run: |
+          SERVICE="${{ matrix.service }}"
+          TARGET_IP="${{ matrix.ip }}"
+          TARGET_USER="${{ matrix.user }}"
+          SERVER_NAME="${{ matrix.server }}"
+          
+          echo "Performing health check for $SERVICE on $SERVER_NAME..."
+          sleep 10
+          
+          # Check if containers are running
+          ssh $TARGET_USER@$TARGET_IP "docker ps | grep $SERVICE" || {
+            echo "Warning: Service $SERVICE may not be running properly on $SERVER_NAME"
+            ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 50"
+            exit 1
+          }
+          
+          echo "✓ Service $SERVICE is running on $SERVER_NAME"
+
+  deployment-summary:
+    needs: [detect-changes, deploy-services]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Services deployed:** ${{ needs.detect-changes.outputs.services }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ needs.deploy-services.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY

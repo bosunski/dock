@@ -1,0 +1,31 @@
+# Docker Compose setup for local Ansible testing
+# This creates a container that mimics a remote server
+
+services:
+  test-server:
+    image: ubuntu:22.04
+    container_name: dock-test-server
+    hostname: dock-test
+    ports:
+      - "2222:22"      # SSH
+      - "8080:80"      # HTTP
+      - "8443:443"     # HTTPS
+      - "5432:5432"    # PostgreSQL
+      - "6379:6379"    # Redis
+    volumes:
+      - test_server_data:/var/lib/docker
+      - test_server_home:/home
+      - ./scripts/setup-test-server.sh:/setup.sh:ro
+    command: /bin/bash /setup.sh
+    privileged: true  # Required for Docker-in-Docker
+    networks:
+      - test_network
+    restart: unless-stopped
+
+volumes:
+  test_server_data:
+  test_server_home:
+
+networks:
+  test_network:
+    driver: bridge

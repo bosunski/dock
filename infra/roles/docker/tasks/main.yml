@@ -1,0 +1,78 @@
+---
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch={{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Install Docker
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Ensure Docker service is running
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Add users to docker group
+  user:
+    name: "{{ item }}"
+    groups: docker
+    append: yes
+  loop:
+    - "{{ ansible_user }}"
+    - "{{ deploy_user | default('deploy') }}"
+
+- name: Install Docker Compose standalone (for compatibility)
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-{{ ansible_system }}-{{ ansible_machine }}"
+    dest: /usr/local/bin/docker-compose
+    mode: '0755'
+
+- name: Create Docker network for services
+  docker_network:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - services_network
+    - monitoring_network
+
+- name: Configure Docker daemon
+  copy:
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "default-address-pools": [
+          {
+            "base": "172.80.0.0/16",
+            "size": 24
+          }
+        ]
+      }
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+  notify: restart docker
+
+- name: Create Docker data directory
+  file:
+    path: /opt/docker
+    state: directory
+    mode: '0755'

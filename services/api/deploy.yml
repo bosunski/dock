@@ -1,0 +1,55 @@
+# Deployment Configuration for API Service
+
+service:
+  name: api
+  type: dockerfile
+  
+# Target servers for deployment
+targets:
+  # Deploy by role - any server with 'api' role
+  roles:
+    - api
+  
+  # Or specify by environment
+  # environments:
+  #   - staging
+  #   - production
+  
+  # Or list specific servers
+  # servers:
+  #   - staging-web-1
+  #   - prod-web-1
+
+# Build configuration
+build:
+  dockerfile: Dockerfile
+  context: .
+  args: {}
+
+# Runtime configuration
+runtime:
+  image_name: my-api
+  image_tag: latest
+  container_port: 3000
+  host_port: 3000
+  network: services_network
+  env_file: .env  # optional
+
+# Behind Nginx proxy?
+proxy:
+  enabled: true
+  path: /api
+  strip_prefix: true
+
+# Health check
+health_check:
+  enabled: true
+  endpoint: /health
+  interval: 30
+
+# Deployment options
+deployment:
+  strategy: rolling
+  replicas: 1  # number of containers (for multi-instance)
+  wait_for_health: true
+  timeout: 300

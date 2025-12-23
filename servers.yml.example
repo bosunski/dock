@@ -1,0 +1,72 @@
+# Server Configuration Example
+# Copy this to servers.yml and update with your actual server IPs
+
+servers:
+  # Staging servers
+  staging-web-1:
+    ip: YOUR_STAGING_IP_HERE
+    environment: staging
+    roles:
+      - web
+      - api
+    ssh_user: deploy
+    tags:
+      - frontend
+      - backend
+
+  # Production servers
+  prod-web-1:
+    ip: YOUR_PROD_IP_HERE
+    environment: production
+    roles:
+      - web
+      - api
+    ssh_user: deploy
+    tags:
+      - frontend
+      - backend
+
+  prod-db-1:
+    ip: YOUR_PROD_DB_IP_HERE
+    environment: production
+    roles:
+      - database
+    ssh_user: deploy
+    tags:
+      - database
+
+  # Local testing
+  local-test:
+    ip: 127.0.0.1
+    environment: local
+    ssh_port: 2222
+    ssh_user: vagrant
+    roles:
+      - web
+      - api
+      - database
+    tags:
+      - all
+
+environments:
+  staging:
+    - staging-web-1
+  
+  production:
+    - prod-web-1
+    - prod-db-1
+  
+  local:
+    - local-test
+
+role_groups:
+  web:
+    - staging-web-1
+    - prod-web-1
+  
+  api:
+    - staging-web-1
+    - prod-web-1
+  
+  database:
+    - prod-db-1

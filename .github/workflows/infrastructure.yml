@@ -1,0 +1,110 @@
+name: Infrastructure Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          
+          # Add all servers from servers.yml to known_hosts
+          python3 << 'EOF'
+          import yaml
+          with open('servers.yml') as f:
+              config = yaml.safe_load(f)
+          for server_name, server_info in config['servers'].items():
+              ip = server_info['ip']
+              if ip not in ['127.0.0.1', 'localhost']:
+                  print(f"Adding {server_name} ({ip}) to known_hosts")
+                  import subprocess
+                  subprocess.run(['ssh-keyscan', '-H', ip], 
+                               stdout=open('/home/runner/.ssh/known_hosts', 'a'),
+                               stderr=subprocess.DEVNULL)
+          EOF
+
+      - name: Determine target environment
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update inventory with actual IPs
+        working-directory: infra
+        run: |
+          # Read servers.yml and update inventory/hosts.yml with actual IPs
+          python3 << 'EOF'
+          import yaml
+          
+          # Load servers configuration
+          with open('../servers.yml') as f:
+              servers_config = yaml.safe_load(f)
+          
+          # Load inventory
+          with open('inventory/hosts.yml') as f:
+              inventory = yaml.safe_load(f)
+          
+          # Update inventory with IPs from servers.yml
+          for server_name, server_info in servers_config['servers'].items():
+              env = server_info['environment']
+              if env in inventory['all']['children']:
+                  if server_name in inventory['all']['children'][env]['hosts']:
+                      inventory['all']['children'][env]['hosts'][server_name]['ansible_host'] = server_info['ip']
+                      inventory['all']['children'][env]['hosts'][server_name]['ansible_user'] = server_info['ssh_user']
+          
+          # Write updated inventory
+          with open('inventory/hosts.yml', 'w') as f:
+              yaml.dump(inventory, f, default_flow_style=False)
+          EOF
+
+      - name: Run Ansible playbook
+        working-directory: infra
+        env:
+          SSH_KEY_PATH: ~/.ssh/id_rsa
+          DEPLOY_SSH_PUBLIC_KEY: ${{ secrets.DEPLOY_SSH_PUBLIC_KEY }}
+        run: |
+          ansible-playbook -i inventory/hosts.yml playbook.yml \
+            --limit ${{ steps.target.outputs.environment }} \
+            -v
+
+      - name: Verify deployment
+        run: |
+          echo "Infrastructure deployment completed successfully!"
+          echo "Environment: ${{ steps.target.outputs.environment }}"

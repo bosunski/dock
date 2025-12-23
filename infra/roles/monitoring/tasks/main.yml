@@ -1,0 +1,25 @@
+---
+- name: Create monitoring directory
+  file:
+    path: /opt/monitoring
+    state: directory
+    mode: '0755'
+
+- name: Install monitoring tools
+  apt:
+    name:
+      - prometheus-node-exporter
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Ensure node exporter is running
+  systemd:
+    name: prometheus-node-exporter
+    state: started
+    enabled: yes
+
+- name: Install Docker monitoring tool (ctop)
+  get_url:
+    url: "https://github.com/bcicen/ctop/releases/download/v0.7.7/ctop-0.7.7-linux-amd64"
+    dest: /usr/local/bin/ctop
+    mode: '0755'

@@ -1,0 +1,45 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Install essential packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - vim
+      - htop
+      - net-tools
+      - software-properties-common
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Set timezone
+  timezone:
+    name: UTC
+
+- name: Configure hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Ensure deploy user exists
+  user:
+    name: "{{ deploy_user | default('deploy') }}"
+    shell: /bin/bash
+    groups: sudo,docker
+    append: yes
+    create_home: yes
+
+- name: Set up authorized keys for deploy user
+  authorized_key:
+    user: "{{ deploy_user | default('deploy') }}"
+    key: "{{ lookup('env', 'DEPLOY_SSH_PUBLIC_KEY') }}"
+  when: lookup('env', 'DEPLOY_SSH_PUBLIC_KEY') != ""

@@ -1,0 +1,36 @@
+# Environment files
+.env
+*.env
+!.env.example
+
+# Server configuration (contains IPs)
+servers.yml
+!servers.yml.example
+
+# Secrets and credentials
+secrets/
+*.pem
+*.key
+!*.pub
+
+# Ansible
+*.retry
+.ansible/
+
+# Docker
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/

@@ -1,0 +1,49 @@
+# Deployment Configuration for Nginx Service
+
+service:
+  name: nginx
+  type: compose  # or "dockerfile"
+  
+# Target servers for deployment
+targets:
+  # Deploy by server name
+  servers:
+    - staging-web-1
+    - prod-web-1
+    - prod-web-2
+  
+  # Or deploy by role
+  # roles:
+  #   - web
+  
+  # Or deploy by environment
+  # environments:
+  #   - staging
+  #   - production
+
+# Nginx-specific configuration
+nginx:
+  # Backend services to proxy
+  backends:
+    # Service name maps to container name or upstream server
+    - name: api
+      upstream: api:3000
+      domain: api.example.com
+      path: /api
+    
+    - name: webapp
+      upstream: webapp:8080
+      domain: app.example.com
+      path: /
+
+# Health check configuration
+health_check:
+  enabled: true
+  path: /health
+  interval: 30
+
+# Deployment options
+deployment:
+  strategy: rolling  # rolling or recreate
+  wait_for_health: true
+  timeout: 300
