@@ -223,7 +223,7 @@ jobs:
       - name: Load secrets from 1Password
         uses: 1password/load-secrets-action@v2
         with:
-          export-env: true
+          export-env: false
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           SECRET_REFS: op://Egberinde/${{ matrix.service }}-${{ matrix.environment }}
@@ -243,6 +243,12 @@ jobs:
           
           if [ -s "services/$SERVICE/.env" ]; then
             echo "✅ Generated .env with $(wc -l < services/$SERVICE/.env | xargs) variables"
+          else
+            echo "❌ Failed to generate .env file"
+            exit 1
+          fi
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           else
             echo "❌ Failed to generate .env file"
             exit 1
