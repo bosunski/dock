@@ -163,7 +163,7 @@ jobs:
 
   deploy-services:
     needs: detect-changes
-    if: github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.services != '[]'
+    if: (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.services != '[]') && needs.detect-changes.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
