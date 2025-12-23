@@ -47,12 +47,16 @@ jobs:
         id: changes
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "Manual trigger detected - skipping git change detection"
             if [ "${{ inputs.service }}" == "all" ]; then
-              SERVICES=$(ls -d services/*/ | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
+              SERVICES=$(ls -d services/*/ 2>/dev/null | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
+              echo "Deploying all services: $SERVICES"
             else
               SERVICES='["${{ inputs.service }}"]'
+              echo "Deploying selected service: ${{ inputs.service }}"
             fi
           else
+            echo "Push trigger detected - checking for changed services"
             # Get changed files, handling first commit or shallow clone
             if git rev-parse HEAD^ >/dev/null 2>&1; then
               CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
@@ -61,10 +65,17 @@ jobs:
               CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT HEAD)
             fi
             SERVICES=$(echo "$CHANGED_FILES" | grep '^services/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1] | map(select(length > 0))')
+            
+            # If no services changed, set empty array
+            if [ -z "$SERVICES" ] || [ "$SERVICES" == "[]" ]; then
+              SERVICES='[]'
+              echo "No service changes detected"
+            else
+              echo "Changed services detected: $SERVICES"
+            fi
           fi
           
           echo "services=$SERVICES" >> $GITHUB_OUTPUT
-          echo "Changed services: $SERVICES"
 
       - name: Build deployment matrix
         id: set-matrix
@@ -150,7 +161,7 @@ jobs:
 
   deploy-services:
     needs: detect-changes
-    if: needs.detect-changes.outputs.services != '[]'
+    if: github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.services != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
