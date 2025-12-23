@@ -110,14 +110,7 @@ for domain in $DOMAINS; do
     echo ""
     echo "Requesting certificate for: $domain"
     
-    docker compose run --rm certbot certonly \
-        --webroot \
-        -w /var/www/certbot \
-        --email "admin@$domain" \
-        --agree-tos \
-        --no-eff-email \
-        --force-renewal \
-        -d "$domain" || {
+    docker compose run --rm --entrypoint "certbot certonly --webroot -w /var/www/certbot --email admin@$domain --agree-tos --no-eff-email --force-renewal -d $domain" certbot || {
             echo "❌ Failed to obtain certificate for $domain"
             echo ""
             echo "Troubleshooting:"
