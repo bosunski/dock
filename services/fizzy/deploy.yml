@@ -3,6 +3,10 @@
 service:
   name: fizzy
   type: compose  # or "dockerfile"
+
+# Secrets configuration
+secrets:
+  required: true  # Set to true if service needs secrets from 1Password
   
 # Target servers for deployment
 targets:

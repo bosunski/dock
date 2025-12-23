@@ -200,9 +200,11 @@ jobs:
               config = yaml.safe_load(f)
           
           deploy_type = config['service']['type']
+          secrets_required = config.get('secrets', {}).get('required', False)
           
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'type={deploy_type}\n')
+              f.write(f'secrets_required={str(secrets_required).lower()}\n')
               
               if deploy_type == 'dockerfile':
                   runtime = config.get('runtime', {})
@@ -218,15 +220,18 @@ jobs:
           SERVICE: ${{ matrix.service }}
 
       - name: Set up 1Password CLI
+        if: steps.deploy-config.outputs.secrets_required == 'true'
         uses: 1password/install-cli-action@v1
 
       - name: Load secrets to .env file
+        if: steps.deploy-config.outputs.secrets_required == 'true'
         uses: 1password/load-secrets-action@v2
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           DOTENV_FILE: op://Egberinde/${{ matrix.service }}/${{ matrix.environment }}.env
       
       - name: Write .env file
+        if: steps.deploy-config.outputs.secrets_required == 'true'
         run: |
           SERVICE="${{ matrix.service }}"
           echo "$DOTENV_FILE" > "services/$SERVICE/.env"
@@ -237,6 +242,10 @@ jobs:
             echo "❌ Failed to generate .env file"
             exit 1
           fi
+      
+      - name: Skip secrets (not required)
+        if: steps.deploy-config.outputs.secrets_required != 'true'
+        run: echo "ℹ️  Secrets not required for this service, skipping"
 
       - name: Deploy with Docker Compose
         if: steps.deploy-config.outputs.type == 'compose'

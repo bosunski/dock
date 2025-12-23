@@ -49,23 +49,36 @@ SMTP_PASSWORD=password123
 ## How It Works
 
 1. **During Deployment:**
-   - Workflow installs 1Password CLI
-   - Uses `load-secrets-action` to fetch the `dotenv` document from `{service}-{environment}` item
+   - Workflow checks if service requires secrets (via `secrets.required` in deploy.yml)
+   - If required: installs 1Password CLI and fetches the `dotenv` document from `{service}/{environment}.env` reference
    - Writes content directly to `.env` file
    - Deploys service with `.env` file
 
 2. **Service Configuration:**
+   - Add `secrets.required: true` in service's `deploy.yml` if it needs secrets
    - Each service's `docker-compose.yml` uses `env_file: - .env`
    - `.env` files are gitignored
    - Use `.env.example` as template (commit this)
 
 ## Adding Secrets for a New Service
 
-1. Create `.env.example` in `services/{service}/`
-2. Update `docker-compose.yml` to use `env_file: - .env`
-3. Create `{service}-production` and `{service}-staging` items in 1Password
-4. Add fields matching `.env.example`
-5. Deploy - secrets automatically injected!
+1. **In `services/{service}/deploy.yml`**, add:
+   ```yaml
+   secrets:
+     required: true  # Only if service needs secrets
+   ```
+
+2. Create `.env.example` in `services/{service}/` documenting required variables
+
+3. Update `docker-compose.yml` to use `env_file: - .env`
+
+4. In 1Password, create item `{service}-{environment}` (e.g., `fizzy-production`)
+
+5. Upload your `.env` content as a document named `dotenv` or `{environment}.env`
+
+6. Deploy - secrets automatically injected!
+
+**Note:** Services without `secrets.required: true` will skip secret loading and won't fail if no 1Password item exists.
 
 ## Example: Complete Setup
 
