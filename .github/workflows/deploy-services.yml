@@ -217,6 +217,26 @@ jobs:
         env:
           SERVICE: ${{ matrix.service }}
 
+      - name: Set up 1Password CLI
+        uses: 1password/load-secrets-action/configure@v1
+        with:
+          service-account-token: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+
+      - name: Inject secrets from 1Password
+        run: |
+          SERVICE="${{ matrix.service }}"
+          TARGET_ENV="${{ matrix.environment }}"
+          
+          # Generate .env file from 1Password
+          bash scripts/inject-secrets.sh "$SERVICE" "$TARGET_ENV" "services/$SERVICE/.env" || true
+          
+          # Show what we generated (without exposing values)
+          if [ -f "services/$SERVICE/.env" ]; then
+            echo "✅ Generated .env with $(wc -l < services/$SERVICE/.env | xargs) variables"
+          else
+            echo "⚠ No .env generated (no secrets found or not configured)"
+          fi
+
       - name: Deploy with Docker Compose
         if: steps.deploy-config.outputs.type == 'compose'
         run: |

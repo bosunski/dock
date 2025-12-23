@@ -8,16 +8,12 @@ services:
     #   - "443:443"
     networks:
       - services_network
+    env_file:
+      - .env
     environment:
-      - SECRET_KEY_BASE=abcdefabcdef
+      # Non-secret configuration (can be overridden by .env)
       - DISABLE_SSL=true
       - BASE_URL=https://fizzy.egberinde.com
-      - MAILER_FROM_ADDRESS=fizzy@example.com
-      - SMTP_ADDRESS=mail.example.com
-      - SMTP_USERNAME=user
-      - SMTP_PASSWORD=pass
-      - VAPID_PRIVATE_KEY=myvapidprivatekey
-      - VAPID_PUBLIC_KEY=myvapidpublickey
     volumes:
       - fizzy:/rails/storage
 
