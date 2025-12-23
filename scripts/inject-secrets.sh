@@ -7,7 +7,7 @@ set -e
 SERVICE=$1
 ENVIRONMENT=$2
 OUTPUT_PATH=$3
-VAULT=${4:-"Dock"}  # Default vault name: "Dock"
+VAULT=${4:-"egberinde"}  # Default vault name: "egberinde"
 
 if [ -z "$SERVICE" ] || [ -z "$ENVIRONMENT" ] || [ -z "$OUTPUT_PATH" ]; then
     echo "Usage: inject-secrets.sh <service> <environment> <output-path> [vault-name]"

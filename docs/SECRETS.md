@@ -8,7 +8,7 @@ This repository uses 1Password to manage secrets for services.
 
 1. Go to 1Password → Settings → Developer → Service Accounts
 2. Create a service account named "GitHub Dock Deployment"
-3. Grant access to vault: `Dock` (or your chosen vault name)
+3. Grant access to vault: `egberinde` (or your chosen vault name)
 4. Copy the service account token
 
 ### 2. Add to GitHub Secrets
@@ -21,14 +21,14 @@ This repository uses 1Password to manage secrets for services.
 Create items in 1Password following this structure:
 
 **Vault Structure:**
-- Single vault: `Dock` (recommended) or your custom name
+- Single vault: `egberinde` (recommended) or your custom name
 - Items named: `{service}-{environment}` (e.g., `fizzy-production`, `api-staging`)
 
 **Item Naming Convention:**
 - `{service-name}-{environment}` format
 - Examples: `fizzy-production`, `fizzy-staging`, `api-production`, `database-staging`
 
-**Example: `fizzy-production` item in Dock vault:**
+**Example: `fizzy-production` item in egberinde vault:**
 ```
 Item Type: Login or Secure Note
 Fields:
@@ -51,7 +51,7 @@ Fields:
 1. **During Deployment:**
    - Workflow installs 1Password CLI
    - Runs `scripts/inject-secrets.sh <service> <environment>`
-   - Fetches secrets from 1Password item `{service}-{environment}` in `Dock` vault
+   - Fetches secrets from 1Password item `{service}-{environment}` in `egberinde` vault
    - Generates `.env` file with all fields
    - Deploys service with `.env` file
 
@@ -70,7 +70,7 @@ Fields:
 
 ## Example: Complete Setup
 
-**In 1Password (Dock vault):**
+**In 1Password (egberinde vault):**
 ```
 ├─ fizzy-production
 │   ├─ SECRET_KEY_BASE: abc123...
