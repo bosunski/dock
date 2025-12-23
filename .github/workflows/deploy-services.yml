@@ -266,7 +266,11 @@ jobs:
           
           # Deploy with Docker Compose and wait for health checks
           echo "Starting services..."
-          ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/$SERVICE && docker compose pull && docker compose up -d --wait --wait-timeout 15"
+          if ! ssh $TARGET_USER@$TARGET_IP "set -e; cd /opt/docker/$SERVICE && docker compose pull && docker compose up -d --wait --wait-timeout 15"; then
+            echo "❌ Deployment failed - service did not become healthy"
+            ssh $TARGET_USER@$TARGET_IP "docker compose -f /opt/docker/$SERVICE/docker-compose.yml logs --tail 50"
+            exit 1
+          fi
           
           # Initialize SSL if this is nginx
           if [ "$SERVICE" = "nginx" ]; then
