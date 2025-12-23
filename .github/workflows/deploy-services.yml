@@ -180,10 +180,6 @@ jobs:
       - name: Install dependencies
         run: pip install PyYAML
 
-      - name: Generate nginx configuration
-        if: matrix.service == 'nginx'
-        run: python3 scripts/generate-nginx-config.py
-
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
@@ -204,11 +200,9 @@ jobs:
               config = yaml.safe_load(f)
           
           deploy_type = config['service']['type']
-          proxy_enabled = config.get('proxy', {}).get('enabled', False)
           
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'type={deploy_type}\n')
-              f.write(f'proxy_enabled={str(proxy_enabled).lower()}\n')
               
               if deploy_type == 'dockerfile':
                   runtime = config.get('runtime', {})
@@ -219,8 +213,6 @@ jobs:
                   f.write(f"network={runtime.get('network', 'services_network')}\n")
           
           print(f"Service {service} type: {deploy_type}")
-          if proxy_enabled:
-              print(f"Service {service} has proxy enabled - nginx will be updated")
           EOF
         env:
           SERVICE: ${{ matrix.service }}
@@ -314,39 +306,99 @@ jobs:
             exit 1
           fi
 
-      - name: Regenerate and deploy nginx if proxy enabled
-        if: steps.deploy-config.outputs.proxy_enabled == 'true' && matrix.service != 'nginx'
+  update-nginx:
+    needs: [detect-changes, deploy-services]
+    if: needs.deploy-services.result == 'success'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install PyYAML
+
+      - name: Generate nginx configuration
+        run: python3 scripts/generate-nginx-config.py
+
+      - name: Set up SSH
         run: |
-          SERVICE="${{ matrix.service }}"
-          TARGET_IP="${{ matrix.ip }}"
-          TARGET_USER="${{ matrix.user }}"
-          SERVER_NAME="${{ matrix.server }}"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Deploy nginx configuration to all servers
+        run: |
+          python3 << 'EOF'
+          import yaml
+          import subprocess
+          import os
           
-          echo "Service $SERVICE has proxy enabled, updating nginx configuration..."
+          # Load servers configuration
+          with open('servers.yml') as f:
+              servers_config = yaml.safe_load(f)
           
-          # Regenerate nginx config with latest changes
-          python3 scripts/generate-nginx-config.py
+          target_env = os.environ.get('TARGET_ENV', 'production')
           
-          # Check if nginx-proxy container exists on this server
-          if ssh $TARGET_USER@$TARGET_IP "docker ps -q -f name=nginx-proxy" | grep -q .; then
-            echo "Deploying updated nginx configuration to $SERVER_NAME..."
-            
-            # Copy nginx config to server
-            ssh $TARGET_USER@$TARGET_IP "mkdir -p /opt/docker/nginx"
-            scp services/nginx/nginx.conf $TARGET_USER@$TARGET_IP:/opt/docker/nginx/nginx.conf
-            
-            # Reload nginx gracefully
-            ssh $TARGET_USER@$TARGET_IP "docker exec nginx-proxy nginx -s reload" || \
-              ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/nginx && docker compose restart nginx"
-            
-            echo "✓ Nginx configuration updated and reloaded successfully"
-          else
-            echo "⚠ Warning: nginx-proxy container not found on $SERVER_NAME"
-            echo "Deploy the nginx service first to enable proxy functionality for $SERVICE"
-          fi
+          # Get all servers in target environment
+          env_servers = servers_config.get('environments', {}).get(target_env, [])
+          
+          for server_name in env_servers:
+              server_info = servers_config['servers'][server_name]
+              ip = server_info['ip']
+              user = server_info['ssh_user']
+              
+              print(f"Checking for nginx on {server_name} ({ip})...")
+              
+              # Add to known hosts
+              subprocess.run(['ssh-keyscan', '-H', ip], 
+                           stdout=open(os.path.expanduser('~/.ssh/known_hosts'), 'a'),
+                           stderr=subprocess.DEVNULL)
+              
+              # Check if nginx exists
+              result = subprocess.run(
+                  ['ssh', f'{user}@{ip}', 'docker ps -q -f name=nginx-proxy'],
+                  capture_output=True, text=True
+              )
+              
+              if result.stdout.strip():
+                  print(f"✓ Found nginx on {server_name}, updating configuration...")
+                  
+                  # Create directory
+                  subprocess.run(['ssh', f'{user}@{ip}', 'mkdir -p /opt/docker/nginx'])
+                  
+                  # Copy nginx config
+                  subprocess.run(['scp', 'services/nginx/nginx.conf', 
+                                f'{user}@{ip}:/opt/docker/nginx/nginx.conf'])
+                  
+                  # Reload nginx
+                  reload_result = subprocess.run(
+                      ['ssh', f'{user}@{ip}', 'docker exec nginx-proxy nginx -s reload'],
+                      capture_output=True, text=True
+                  )
+                  
+                  if reload_result.returncode == 0:
+                      print(f"✅ Nginx configuration updated on {server_name}")
+                  else:
+                      # Fallback to restart
+                      subprocess.run(['ssh', f'{user}@{ip}', 
+                                    'cd /opt/docker/nginx && docker compose restart nginx'])
+                      print(f"✅ Nginx restarted on {server_name}")
+              else:
+                  print(f"⚠ No nginx found on {server_name}, skipping")
+          
+          print("\n✅ Nginx configuration update complete")
+          EOF
+        env:
+          TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
 
   deployment-summary:
-    needs: [detect-changes, deploy-services]
+    needs: [detect-changes, deploy-services, update-nginx]
     if: always()
     runs-on: ubuntu-latest
     
@@ -356,5 +408,6 @@ jobs:
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Services deployed:** ${{ needs.detect-changes.outputs.services }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ${{ needs.deploy-services.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deploy status:** ${{ needs.deploy-services.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Nginx update:** ${{ needs.update-nginx.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
