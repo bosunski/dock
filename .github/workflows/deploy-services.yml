@@ -327,21 +327,22 @@ jobs:
           # Regenerate nginx config with latest changes
           python3 scripts/generate-nginx-config.py
           
-          # Check if nginx exists on this server
-          if ssh $TARGET_USER@$TARGET_IP "docker ps -a --format '{{.Names}}' | grep -q '^nginx-nginx-1$'"; then
-            echo "Deploying updated nginx configuration to $SERVER_NAME"
+          # Check if nginx-proxy container exists on this server
+          if ssh $TARGET_USER@$TARGET_IP "docker ps -q -f name=nginx-proxy" | grep -q .; then
+            echo "Deploying updated nginx configuration to $SERVER_NAME..."
             
             # Copy nginx config to server
             ssh $TARGET_USER@$TARGET_IP "mkdir -p /opt/docker/nginx"
             scp services/nginx/nginx.conf $TARGET_USER@$TARGET_IP:/opt/docker/nginx/nginx.conf
             
             # Reload nginx gracefully
-            ssh $TARGET_USER@$TARGET_IP "docker exec nginx-nginx-1 nginx -s reload" || \
+            ssh $TARGET_USER@$TARGET_IP "docker exec nginx-proxy nginx -s reload" || \
               ssh $TARGET_USER@$TARGET_IP "cd /opt/docker/nginx && docker compose restart nginx"
             
-            echo "Nginx configuration updated successfully"
+            echo "✓ Nginx configuration updated and reloaded successfully"
           else
-            echo "Warning: nginx not found on $SERVER_NAME, skipping nginx update"
+            echo "⚠ Warning: nginx-proxy container not found on $SERVER_NAME"
+            echo "Deploy the nginx service first to enable proxy functionality for $SERVICE"
           fi
 
   deployment-summary:
