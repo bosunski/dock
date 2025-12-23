@@ -1,0 +1,32 @@
+# Deployment Configuration for Nginx Service
+
+service:
+  name: fizzy
+  type: compose  # or "dockerfile"
+  
+# Target servers for deployment
+targets:
+  # Deploy by server name
+  servers:
+    - prod-web-1
+  
+  # Or deploy by role
+  # roles:
+  #   - web
+  
+  # Or deploy by environment
+  # environments:
+  #   - production
+
+
+# Health check configuration
+health_check:
+  enabled: true
+  path: /health
+  interval: 30
+
+# Deployment options
+deployment:
+  strategy: rolling  # rolling or recreate
+  wait_for_health: true
+  timeout: 300

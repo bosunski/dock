@@ -259,7 +259,8 @@ jobs:
           scp -r services/$SERVICE/* $TARGET_USER@$TARGET_IP:/opt/docker/$SERVICE/
           
           # Build and run container
-          ssh $TARGET_USER@$TARGET_IP << EOF
+          ssh $TARGET_USER@$TARGET_IP bash << EOSSH
+            set -e  # Exit on any error
             cd /opt/docker/$SERVICE
             
             # Stop and remove old container
@@ -270,15 +271,17 @@ jobs:
             docker build -t $IMAGE_NAME:$IMAGE_TAG .
             
             # Run new container
-            docker run -d \
-              --name $SERVICE \
-              --network $NETWORK \
-              -p $HOST_PORT:$CONTAINER_PORT \
-              --restart unless-stopped \
+            docker run -d \\
+              --name $SERVICE \\
+              --network $NETWORK \\
+              -p $HOST_PORT:$CONTAINER_PORT \\
+              --restart unless-stopped \\
               $IMAGE_NAME:$IMAGE_TAG
             
-            echo "Container $SERVICE started successfully on $SERVER_NAME"
-          EOF
+            echo "Container $SERVICE started successfully"
+          EOSSH
+          
+          echo "Deployment of $SERVICE to $SERVER_NAME completed"
 
       - name: Health check
         run: |
@@ -286,18 +289,22 @@ jobs:
           TARGET_IP="${{ matrix.ip }}"
           TARGET_USER="${{ matrix.user }}"
           SERVER_NAME="${{ matrix.server }}"
+          DEPLOY_TYPE="${{ steps.deploy-config.outputs.type }}"
           
           echo "Performing health check for $SERVICE on $SERVER_NAME..."
           sleep 10
           
-          # Check if containers are running
-          ssh $TARGET_USER@$TARGET_IP "docker ps | grep $SERVICE" || {
-            echo "Warning: Service $SERVICE may not be running properly on $SERVER_NAME"
-            ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 50"
+          # Check if service is running
+          if ssh $TARGET_USER@$TARGET_IP "docker ps --format '{{.Names}}' | grep -q '^${SERVICE}$' || docker compose -f /opt/docker/$SERVICE/docker-compose.yml ps --services --filter 'status=running' | grep -q ."; then
+            echo "✓ Service $SERVICE is running on $SERVER_NAME"
+          else
+            echo "❌ Service $SERVICE is not running on $SERVER_NAME"
+            echo "Container status:"
+            ssh $TARGET_USER@$TARGET_IP "docker ps -a | grep $SERVICE || echo 'No containers found'"
+            echo "Container logs (last 50 lines):"
+            ssh $TARGET_USER@$TARGET_IP "docker logs $SERVICE --tail 50 2>&1 || docker compose -f /opt/docker/$SERVICE/docker-compose.yml logs --tail 50 2>&1 || echo 'No logs available'"
             exit 1
-          }
-          
-          echo "✓ Service $SERVICE is running on $SERVER_NAME"
+          fi
 
   deployment-summary:
     needs: [detect-changes, deploy-services]
