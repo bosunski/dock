@@ -3,10 +3,6 @@
 *.env
 !.env.example
 
-# Server configuration (contains IPs)
-servers.yml
-!servers.yml.example
-
 # Secrets and credentials
 secrets/
 *.pem
