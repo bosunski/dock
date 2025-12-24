@@ -288,7 +288,12 @@ jobs:
 
   deploy-services:
     needs: [detect-changes, cleanup-services]
-    if: always() && (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.services != '[]') && needs.detect-changes.outputs.matrix != '{"include":[]}'
+    if: |
+      always() && 
+      !cancelled() &&
+      needs.detect-changes.outputs.services != '[]' && 
+      needs.detect-changes.outputs.matrix != '{"include":[]}' &&
+      needs.detect-changes.outputs.matrix != ''
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
