@@ -54,16 +54,24 @@ jobs:
               SERVICES='["${{ inputs.service }}"]'
               echo "Deploying selected service: ${{ inputs.service }}"
             fi
+            REMOVED_SERVICES='[]'
           else
             echo "Push trigger detected - checking for changed services"
             # Get changed files, handling first commit or shallow clone
             if git rev-parse HEAD^ >/dev/null 2>&1; then
               CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+              DELETED_FILES=$(git diff --name-only --diff-filter=D HEAD^ HEAD)
             else
               # First commit or shallow clone - check all files
               CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT HEAD)
+              DELETED_FILES=""
             fi
+            
+            # Detect modified/added services
             SERVICES=$(echo "$CHANGED_FILES" | grep '^services/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1] | map(select(length > 0))')
+            
+            # Detect removed services (entire service directory deleted)
+            REMOVED_SERVICES=$(echo "$DELETED_FILES" | grep '^services/[^/]*/deploy\.yml$' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n")[:-1] | map(select(length > 0))')
             
             # If no services changed, set empty array
             if [ -z "$SERVICES" ] || [ "$SERVICES" == "[]" ]; then
@@ -72,9 +80,16 @@ jobs:
             else
               echo "Changed services detected: $SERVICES"
             fi
+            
+            if [ -z "$REMOVED_SERVICES" ] || [ "$REMOVED_SERVICES" == "[]" ]; then
+              REMOVED_SERVICES='[]'
+            else
+              echo "Removed services detected: $REMOVED_SERVICES"
+            fi
           fi
           
           echo "services=$SERVICES" >> $GITHUB_OUTPUT
+          echo "removed_services=$REMOVED_SERVICES" >> $GITHUB_OUTPUT
 
       - name: Build deployment matrix
         id: set-matrix
@@ -160,9 +175,104 @@ jobs:
           SERVICES: ${{ steps.changes.outputs.services }}
           TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
 
-  deploy-services:
+  cleanup-services:
     needs: detect-changes
-    if: (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.services != '[]') && needs.detect-changes.outputs.matrix != '{"include":[]}'
+    if: needs.detect-changes.outputs.removed_services != '[]'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install PyYAML
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Remove deleted services
+        run: |
+          python3 << 'EOF'
+          import json
+          import yaml
+          import subprocess
+          import os
+          
+          removed_services = json.loads(os.environ['REMOVED_SERVICES'])
+          target_env = os.environ.get('TARGET_ENV', 'production')
+          
+          print(f"🗑️  Services to remove: {removed_services}")
+          
+          # Load servers configuration
+          with open('servers.yml') as f:
+              servers_config = yaml.safe_load(f)
+          
+          # Get all servers in target environment
+          env_servers = servers_config.get('environments', {}).get(target_env, [])
+          
+          for service_name in removed_services:
+              print(f"\n{'='*60}")
+              print(f"Removing service: {service_name}")
+              print(f"{'='*60}")
+              
+              for server_name in env_servers:
+                  server_info = servers_config['servers'][server_name]
+                  ip = server_info['ip']
+                  user = server_info['ssh_user']
+                  
+                  print(f"\nCleaning up {service_name} from {server_name} ({ip})...")
+                  
+                  # Add to known hosts
+                  subprocess.run(['ssh-keyscan', '-H', ip], 
+                               stdout=open(os.path.expanduser('~/.ssh/known_hosts'), 'a'),
+                               stderr=subprocess.DEVNULL)
+                  
+                  # Check if service exists
+                  check_result = subprocess.run(
+                      ['ssh', f'{user}@{ip}', f'test -d /opt/docker/{service_name} && echo "exists" || echo "missing"'],
+                      capture_output=True, text=True
+                  )
+                  
+                  if 'exists' in check_result.stdout:
+                      # Stop and remove containers with volumes
+                      print(f"  → Stopping containers...")
+                      subprocess.run(
+                          ['ssh', f'{user}@{ip}', f'cd /opt/docker/{service_name} && docker compose down -v 2>/dev/null || true'],
+                          capture_output=True
+                      )
+                      
+                      # Remove service directory
+                      print(f"  → Removing directory /opt/docker/{service_name}")
+                      subprocess.run(
+                          ['ssh', f'{user}@{ip}', f'rm -rf /opt/docker/{service_name}'],
+                          capture_output=True
+                      )
+                      
+                      print(f"  ✅ Cleaned up {service_name} from {server_name}")
+                  else:
+                      print(f"  ℹ️  Service {service_name} not found on {server_name}, skipping")
+              
+              print(f"\n✅ Service {service_name} removed from all servers")
+          
+          print(f"\n{'='*60}")
+          print(f"🎉 Cleanup complete for {len(removed_services)} service(s)")
+          print(f"{'='*60}")
+          EOF
+        env:
+          REMOVED_SERVICES: ${{ needs.detect-changes.outputs.removed_services }}
+          TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+
+  deploy-services:
+    needs: [detect-changes, cleanup-services]
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.services != '[]') && needs.detect-changes.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
     strategy:
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
@@ -449,7 +559,7 @@ jobs:
           TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
 
   deployment-summary:
-    needs: [detect-changes, deploy-services, update-nginx]
+    needs: [detect-changes, cleanup-services, deploy-services, update-nginx]
     if: always()
     runs-on: ubuntu-latest
     
@@ -459,6 +569,8 @@ jobs:
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Services deployed:** ${{ needs.detect-changes.outputs.services }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Services removed:** ${{ needs.detect-changes.outputs.removed_services }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cleanup status:** ${{ needs.cleanup-services.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Deploy status:** ${{ needs.deploy-services.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Nginx update:** ${{ needs.update-nginx.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
