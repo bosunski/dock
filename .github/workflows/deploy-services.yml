@@ -177,7 +177,7 @@ jobs:
 
   cleanup-services:
     needs: detect-changes
-    if: needs.detect-changes.outputs.removed_services != '[]'
+    if: needs.detect-changes.outputs.removed_services != '[]' && needs.detect-changes.outputs.removed_services != ''
     runs-on: ubuntu-latest
     
     steps:
@@ -206,7 +206,23 @@ jobs:
           import subprocess
           import os
           
-          removed_services = json.loads(os.environ['REMOVED_SERVICES'])
+          removed_services_str = os.environ.get('REMOVED_SERVICES', '[]')
+          
+          # Handle empty or invalid JSON
+          try:
+              if not removed_services_str or removed_services_str.strip() == '':
+                  removed_services = []
+              else:
+                  removed_services = json.loads(removed_services_str)
+          except json.JSONDecodeError as e:
+              print(f"⚠️  Error parsing removed services: {e}")
+              print(f"Raw value: '{removed_services_str}'")
+              removed_services = []
+          
+          if not removed_services:
+              print("ℹ️  No services to remove")
+              exit(0)
+          
           target_env = os.environ.get('TARGET_ENV', 'production')
           
           print(f"🗑️  Services to remove: {removed_services}")
