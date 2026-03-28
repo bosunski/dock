@@ -101,27 +101,6 @@ http {
     
     # Skip upstream blocks - using variables with resolver instead
     
-    # Health check endpoint
-    config += """
-    # Health check endpoint
-    server {
-        listen 80;
-        server_name _;
-        
-        location /health {
-            access_log off;
-            return 200 "healthy\\n";
-            add_header Content-Type text/plain;
-        }
-        
-        # ACME challenge for Let's Encrypt
-        location /.well-known/acme-challenge/ {
-            root /var/www/certbot;
-        }
-    }
-    
-"""
-    
     # Generate server blocks grouped by domain
     domains = {}
     for service in services:
@@ -164,30 +143,47 @@ http {
                 'strip_prefix': proxy_config.get('strip_prefix', False)
             })
     
-    # Generate server blocks
-    for domain, locations in domains.items():
-        # Skip default server (already handled above)
-        if domain == '_':
-            config += f"""
-    server {{
-        listen 80;
-        server_name {domain};
+    default_locations = domains.pop('_', [])
+
+    # Generate default HTTP server with health checks, ACME handling, and any fallback routes.
+    config += """
+    # Health check endpoint and default HTTP fallback
+    server {
+        listen 80 default_server;
+        server_name _;
+        
+        location /health {
+            access_log off;
+            return 200 "healthy\\n";
+            add_header Content-Type text/plain;
+        }
+        
+        # ACME challenge for Let's Encrypt
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+"""
+
+    if default_locations:
+        config += """
         
         client_max_body_size 50M;
 """
-            for location in locations:
-                config += generate_location_config(
-                    location['name'],
-                    location['path'],
-                    location['upstream'],
-                    location['strip_prefix']
-                )
-            config += """
+        for location in default_locations:
+            config += generate_location_config(
+                location['name'],
+                location['path'],
+                location['upstream'],
+                location['strip_prefix']
+            )
+
+    config += """
     }
+    
 """
-            continue
-        
-        # HTTP server - redirect to HTTPS
+
+    # Generate server blocks
+    for domain, locations in domains.items():
         config += f"""
     server {{
         listen 80;

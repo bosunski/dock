@@ -3,6 +3,12 @@ set -e
 
 echo "🔐 Checking SSL certificates..."
 
+reload_nginx() {
+    mkdir -p /var/run/certbot
+    touch /var/run/certbot/reload-nginx
+    echo "🔄 Requested nginx reload"
+}
+
 # Get list of domains from nginx config
 DOMAINS=$(sed -nr 's/^\s*server_name\s+([^;]+);/\1/p' /etc/nginx/conf.d/*.conf /etc/nginx/nginx.conf 2>/dev/null | tr ' ' '\n' | grep -vE '^(_|\$)' | sort -u)
 
@@ -26,7 +32,9 @@ for domain in $DOMAINS; do
     # Check if certificate exists
     if [ -f "/etc/letsencrypt/live/$domain/fullchain.pem" ]; then
         echo "✓ Certificate exists for $domain, attempting renewal..."
-        certbot renew --webroot -w /var/www/certbot --cert-name "$domain" --quiet --deploy-hook "nginx -s reload" || true
+        if certbot renew --webroot -w /var/www/certbot --cert-name "$domain" --quiet; then
+            reload_nginx
+        fi
     else
         echo "⚠ No certificate found for $domain, requesting new certificate..."
         certbot certonly \
@@ -48,7 +56,7 @@ for domain in $DOMAINS; do
         echo "✅ Certificate obtained for $domain"
         
         # Reload nginx to use the new certificate
-        docker exec nginx-proxy nginx -s reload 2>/dev/null || true
+        reload_nginx
     fi
 done
 

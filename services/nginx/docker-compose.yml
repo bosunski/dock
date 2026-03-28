@@ -7,12 +7,15 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./start-nginx.sh:/start-nginx.sh:ro
       - certbot_certs:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot:ro
+      - certbot_runtime:/var/run/certbot
       - nginx_logs:/var/log/nginx
     networks:
       - services_network
     restart: unless-stopped
+    command: ["/bin/sh", "/start-nginx.sh"]
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
@@ -28,6 +31,7 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - certbot_certs:/etc/letsencrypt
       - certbot_www:/var/www/certbot
+      - certbot_runtime:/var/run/certbot
       - ./certbot-renew.sh:/certbot-renew.sh:ro
     networks:
       - services_network
@@ -38,6 +42,7 @@ volumes:
   nginx_logs:
   certbot_certs:
   certbot_www:
+  certbot_runtime:
 
 networks:
   services_network:
