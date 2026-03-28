@@ -4,7 +4,7 @@ set -e
 echo "🔐 Checking SSL certificates..."
 
 # Get list of domains from nginx config
-DOMAINS=$(grep -oP 'server_name \K[^;]+' /etc/nginx/nginx.conf 2>/dev/null | grep -v '_' | sort -u || true)
+DOMAINS=$(sed -nr 's/^\s*server_name\s+([^;]+);/\1/p' /etc/nginx/conf.d/*.conf /etc/nginx/nginx.conf 2>/dev/null | tr ' ' '\n' | grep -vE '^(_|\$)' | sort -u)
 
 if [ -z "$DOMAINS" ]; then
     echo "No domains found in nginx config. Skipping certificate renewal."
